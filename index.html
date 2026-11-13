@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="th"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Calorie AI</title>
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#0d0e0f">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="CalAI">
+<link rel="apple-touch-icon" href="assets/icons/icon-180.png">
+<style>
+:root{--bg:#0d0e0f;--cd:#1a1c1e;--ln:#2a2d30;--tx:#f4f5f2;--mu:#9aa09b;--ac:#c6f432;--er:#f87171;--wa:#facc15}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:400 15px/1.55 "IBM Plex Sans Thai","Noto Sans Thai",Sarabun,system-ui,sans-serif;padding:env(safe-area-inset-top) 0 calc(78px + env(safe-area-inset-bottom))}
+main{max-width:720px;margin:0 auto;padding:20px 16px}h1{font-size:24px;margin:0 0 4px}h2{font-size:16px;margin:0 0 10px}
+.cd{background:var(--cd);border:1px solid var(--ln);border-radius:16px;padding:16px;margin-bottom:14px}.mu{color:var(--mu)}.sm{font-size:13px}
+.big{font-size:40px;font-weight:700;line-height:1.1}.big small{font-size:14px;font-weight:400;color:var(--mu)}
+input,select,textarea{font:inherit;color:inherit;background:#111214;border:1px solid var(--ln);border-radius:10px;padding:10px;min-height:44px;width:100%}
+input:focus,textarea:focus,button:focus-visible{outline:2px solid var(--ac)}
+.b{background:var(--ac);color:#10130a;border:0;border-radius:10px;padding:11px 16px;min-height:44px;font:inherit;font-weight:600;cursor:pointer}.b.g{background:none;border:1px solid var(--ln);color:var(--tx)}.b.d{background:none;border:1px solid #5b2323;color:var(--er)}.b:disabled{opacity:.5}
+.bar{height:8px;background:var(--ln);border-radius:9px;overflow:hidden;margin:8px 0}.bar i{display:block;height:100%;background:var(--ac)}.bar.o i{background:var(--er)}
+.r{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.r>*{flex:1}label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--mu)}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 3px;border-bottom:1px solid var(--ln);text-align:right}td:first-child,th:first-child{text-align:left}td input{padding:6px;min-height:38px;min-width:48px}td:first-child input{min-width:90px}.sc{overflow-x:auto}
+.w{border:1px solid #5b4d0e;color:var(--wa);border-radius:10px;padding:10px;font-size:13px;margin:10px 0}
+.e{color:var(--er)}.x{background:none;border:0;color:var(--er);padding:8px;cursor:pointer;font:inherit}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:#111214;border-top:1px solid var(--ln);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;background:none;border:0;color:var(--mu);padding:14px 4px;font:inherit;cursor:pointer}nav button.on{color:var(--ac);font-weight:600}
+img.pv{max-width:100%;max-height:260px;border-radius:12px;display:block;margin:10px auto}
+#t{position:fixed;left:50%;bottom:calc(90px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--cd);border:1px solid var(--ln);padding:10px 16px;border-radius:12px;opacity:0;pointer-events:none;transition:.2s}#t.s{opacity:1}
+</style></head><body><main id="m"></main>
+<nav id="n"></nav><div id="t"></div>
+<script>
+const K='calai_v1';let S={key:'',model:'gemini-2.5-flash',goal:2000,days:{}};
+try{S=Object.assign(S,JSON.parse(localStorage.getItem(K)||'{}'))}catch(e){}
+const save=()=>{try{localStorage.setItem(K,JSON.stringify(S));return true}catch(e){toast('บันทึกไม่สำเร็จ');return false}};
+const $=s=>document.querySelector(s),r0=Math.round,r1=x=>Math.round(x*10)/10,num=v=>{const x=parseFloat(v);return isFinite(x)&&x>=0?x:0};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const td=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
+let tt;const toast=m=>{const e=$('#t');e.textContent=m;e.className='s';clearTimeout(tt);tt=setTimeout(()=>e.className='',2500)};
+const day=d=>S.days[d]||(S.days[d]={items:[],burn:null});
+const sum=a=>a.reduce((s,i)=>({kcal:s.kcal+i.kcal,p:s.p+i.p,c:s.c+i.c,f:s.f+i.f}),{kcal:0,p:0,c:0,f:0});
+let tab='scan',D=[],img=null,conf='',note='',busy=false,err='';
+
+/* ---- AI (Gemini REST, เรียกจากเบราว์เซอร์ด้วยคีย์ของผู้ใช้เอง) ---- */
+const PROMPT='คุณเป็นนักโภชนาการ วิเคราะห์อาหารจากภาพและ/หรือข้อความ แยกเป็นรายการ ประเมินน้ำหนักเป็นกรัมและสารอาหารของปริมาณที่เห็นจริง (ไม่ใช่ต่อ 100 กรัม) รวมน้ำมันและเครื่องปรุงโดยประมาณ ตอบเป็น JSON เท่านั้น: {"items":[{"name":"ชื่อไทย","grams":0,"kcal":0,"protein":0,"carbs":0,"fat":0}],"confidence":"สูง|กลาง|ต่ำ","note":"ข้อสังเกตหรือสิ่งที่ไม่แน่ใจ"} ถ้าไม่ใช่อาหารให้ items เป็น []';
+async function analyze(){
+  const txt=$('#hint').value.trim();
+  if(!S.key)return err='ยังไม่ได้ตั้งค่า Gemini API Key ไปที่แท็บ "ตั้งค่า"',render();
+  if(!img&&!txt)return err='ถ่ายรูปอาหารหรือพิมพ์รายละเอียดก่อน',render();
+  busy=true;err='';render();
+  const parts=[{text:PROMPT+(txt?'\nรายละเอียดจากผู้ใช้: '+txt:'')}];if(img)parts.push({inline_data:{mime_type:'image/jpeg',data:img.split(',')[1]}});
+  try{
+    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(S.model)}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':S.key},body:JSON.stringify({contents:[{parts}],generationConfig:{responseMimeType:'application/json',temperature:0.2}})});
+    if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(r.status===429?'โควตาฟรีเต็มชั่วคราว รอสักครู่แล้วลองใหม่':r.status===400||r.status===403?'API Key ไม่ถูกต้องหรือไม่มีสิทธิ์ใช้โมเดลนี้ ('+(j.error&&j.error.message||r.status)+')':'เรียก AI ไม่สำเร็จ (รหัส '+r.status+')')}
+    const j=await r.json();let t=(j.candidates&&j.candidates[0]&&j.candidates[0].content.parts.map(p=>p.text||'').join(''))||'';
+    const o=JSON.parse(t.replace(/```json|```/g,'').trim());
+    D=(o.items||[]).map(i=>({name:String(i.name||'').slice(0,60),g:num(i.grams),kcal:num(i.kcal),p:num(i.protein),c:num(i.carbs),f:num(i.fat)}));
+    conf=o.confidence||'';note=o.note||'';if(!D.length)err='AI ไม่พบอาหารในข้อมูลที่ส่ง เพิ่มรายการเองด้านล่างได้';
+  }catch(e){err=e instanceof SyntaxError?'อ่านผลจาก AI ไม่สำเร็จ ลองใหม่อีกครั้ง':(e.message||'เชื่อมต่อไม่สำเร็จ ตรวจสอบอินเทอร์เน็ต')}
+  busy=false;render()}
+function pick(f){if(!f)return;const im=new Image(),u=URL.createObjectURL(f);im.onload=()=>{const s=Math.min(1,1024/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*s;c.height=im.height*s;c.getContext('2d').drawImage(im,0,0,c.width,c.height);img=c.toDataURL('image/jpeg',.8);URL.revokeObjectURL(u);render()};im.onerror=()=>{err='เปิดรูปไม่ได้';render()};im.src=u}
+
+/* ---- แก้ไขรายการก่อนบันทึก ---- */
+function ed(i,k,v){const x=D[i];if(k==='name')x.name=v;else{const n=num(v);if(k==='g'&&x.g>0){const q=n/x.g;x.kcal=r1(x.kcal*q);x.p=r1(x.p*q);x.c=r1(x.c*q);x.f=r1(x.f*q)}x[k]=n}render()}
+const addRow=()=>{D.push({name:'',g:100,kcal:0,p:0,c:0,f:0});render()};
+function commit(){const rows=D.filter(i=>i.name.trim());if(!rows.length)return toast('ไม่มีรายการให้บันทึก');
+  if(rows.some(i=>i.kcal>5000||i.g>3000))return toast('ค่าสูงผิดปกติ ตรวจสอบอีกครั้ง');
+  const d=day(td());rows.forEach(i=>d.items.push({id:Date.now()+Math.random(),name:i.name.trim(),g:i.g,kcal:i.kcal,p:i.p,c:i.c,f:i.f,t:new Date().toTimeString().slice(0,5)}));
+  if(save()){D=[];img=null;note='';conf='';tab='today';render();toast('บันทึกแล้ว')}}
+
+/* ---- Views ---- */
+const V={};
+V.scan=()=>{const t=sum(D);return `<h1>สแกนอาหาร</h1><p class="mu">ถ่ายรูปหรือพิมพ์อาหาร ให้ AI ประเมินแคลอรี</p>
+<div class="cd"><div class="r"><label style="flex:1">ถ่ายรูป<input type="file" accept="image/*" capture="environment" onchange="pick(this.files[0])"></label><label style="flex:1">เลือกจากคลังรูป<input type="file" accept="image/*" onchange="pick(this.files[0])"></label></div>
+${img?`<img class="pv" src="${img}" alt="รูปอาหาร"><button class="b g" onclick="img=null;render()">ลบรูป</button>`:''}
+<label style="margin-top:10px">รายละเอียดเพิ่มเติม (ไม่บังคับ)<textarea id="hint" rows="2" placeholder="เช่น ข้าวกะเพราไก่ไข่ดาว ข้าว 1 จาน">${esc($('#hint')?$('#hint').value:'')}</textarea></label>
+<p style="margin:12px 0 0"><button class="b" onclick="analyze()" ${busy?'disabled':''}>${busy?'กำลังวิเคราะห์...':'วิเคราะห์ด้วย AI'}</button></p>${err?`<p class="e">${esc(err)}</p>`:''}</div>
+${D.length||note?`<div class="cd"><h2>ตรวจสอบและแก้ไขก่อนบันทึก</h2><div class="w">ค่าที่ได้เป็นการประมาณจากภาพ ไม่ใช่การชั่งจริง น้ำมันและน้ำตาลที่ซ่อนอยู่ประเมินไม่แม่นยำ${conf?' ความมั่นใจของ AI: '+esc(conf):''}${note?'<br>'+esc(note):''}</div>
+<div class="sc"><table><tr><th>รายการ</th><th>กรัม</th><th>kcal</th><th>P</th><th>C</th><th>F</th><th></th></tr>${D.map((i,k)=>`<tr><td><input value="${esc(i.name)}" onchange="ed(${k},'name',this.value)"></td>${[['g',i.g],['kcal',i.kcal],['p',i.p],['c',i.c],['f',i.f]].map(([f,v])=>`<td><input type="number" step="any" min="0" value="${v}" onchange="ed(${k},'${f}',this.value)"></td>`).join('')}<td><button class="x" onclick="D.splice(${k},1);render()">ลบ</button></td></tr>`).join('')}</table></div>
+<p class="sm mu">แก้กรัมแล้วค่าอื่นปรับตามสัดส่วน P=โปรตีน C=คาร์บ F=ไขมัน (กรัม)</p>
+<div class="big">${r0(t.kcal)} <small>kcal · P ${r0(t.p)} · C ${r0(t.c)} · F ${r0(t.f)}</small></div>
+<p class="r"><button class="b g" onclick="addRow()">เพิ่มรายการ</button><button class="b" onclick="commit()">ยืนยันบันทึก</button></p></div>`:`<p class="mu sm"><button class="b g" onclick="addRow()">หรือกรอกเอง</button></p>`}`};
+V.today=()=>{const d=day(td()),t=sum(d.items),g=S.goal,left=g-t.kcal;return `<h1>วันนี้</h1><p class="mu">${new Date().toLocaleDateString('th-TH',{weekday:'long',day:'numeric',month:'long'})}</p>
+<div class="cd"><div class="big">${r0(Math.abs(left))} <small>kcal ${left>=0?'ที่เหลือ':'เกินเป้าหมาย'}</small></div><div class="bar ${left<0?'o':''}"><i style="width:${Math.min(100,t.kcal/g*100)}%"></i></div>
+<div class="mu sm">กินแล้ว ${r0(t.kcal)} / เป้าหมาย ${g} kcal · โปรตีน ${r0(t.p)} g · คาร์บ ${r0(t.c)} g · ไขมัน ${r0(t.f)} g</div></div>
+<div class="cd"><h2>พลังงานที่เผาผลาญวันนี้ (จากแอป Zepp)</h2><div class="r"><input id="burn" type="number" min="0" max="10000" placeholder="กรอกจาก Zepp" value="${d.burn??''}"><button class="b g" style="flex:0 0 auto" onclick="setBurn()">บันทึก</button></div>
+${d.burn!=null?`<p class="sm mu">สุทธิ (กิน − เผาผลาญที่กรอก) = ${r0(t.kcal-d.burn)} kcal ตัวเลขนี้เป็นเพียงข้อมูลอ้างอิง ไม่รวมการเผาผลาญพื้นฐาน</p>`:''}</div>
+<div class="cd"><h2>รายการที่กิน</h2>${d.items.length?`<div class="sc"><table>${d.items.map(i=>`<tr><td>${esc(i.name)}<br><span class="mu sm">${i.t} · ${i.g} g</span></td><td>${r0(i.kcal)}</td><td><button class="x" onclick="del('${td()}',${i.id})">ลบ</button></td></tr>`).join('')}</table></div>`:'<p class="mu">ยังไม่มีรายการ <button class="b g" onclick="tab=\'scan\';render()">สแกนอาหาร</button></p>'}</div>`};
+function setBurn(){const v=parseFloat($('#burn').value);if(!(v>=0&&v<=10000))return toast('กรอกตัวเลข 0–10000');day(td()).burn=v;if(save()){render();toast('บันทึกแล้ว')}}
+function del(d,id){if(!confirm('ลบรายการนี้?'))return;S.days[d].items=S.days[d].items.filter(i=>i.id!==id);save();render()}
+V.hist=()=>{const ks=Object.keys(S.days).filter(k=>S.days[k].items.length).sort().reverse();return `<h1>ประวัติ</h1><div class="cd">${ks.length?`<div class="sc"><table><tr><th>วันที่</th><th>กิน</th><th>เผาผลาญ (Zepp)</th><th>P</th></tr>${ks.slice(0,60).map(k=>{const t=sum(S.days[k].items);return `<tr><td>${k}</td><td>${r0(t.kcal)}</td><td>${S.days[k].burn??'–'}</td><td>${r0(t.p)}</td></tr>`}).join('')}</table></div>
+<p class="r"><button class="b g" onclick="exp()">ส่งออกข้อมูล (JSON)</button></p>`:'<p class="mu">ยังไม่มีประวัติ</p>'}</div>`};
+function exp(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S.days,null,1)],{type:'application/json'}));a.download='calorie-ai-'+td()+'.json';a.click()}
+V.set=()=>`<h1>ตั้งค่า</h1><div class="cd"><h2>เป้าหมายแคลอรีต่อวัน</h2><div class="r"><input id="goal" type="number" min="800" max="6000" value="${S.goal}"><button class="b" style="flex:0 0 auto" onclick="setGoal()">บันทึก</button></div><p class="sm mu">กรอกตามที่คุณต้องการ แอปนี้ไม่คำนวณ TDEE ให้</p></div>
+<div class="cd"><h2>Gemini API Key (ฟรี)</h2><p class="sm mu">สร้างที่ aistudio.google.com แล้วเลือก Get API key คีย์เก็บไว้ในเบราว์เซอร์เครื่องนี้เท่านั้น ไม่ถูกส่งไปที่อื่นนอกจาก Google ห้ามใส่ลงในไฟล์บน GitHub โควตาฟรีมีจำกัดและ Google อาจนำข้อมูลที่ส่งในแพ็กเกจฟรีไปปรับปรุงผลิตภัณฑ์ ภาพอาหารจึงถูกส่งให้ Google ด้วย</p>
+<label>API Key<input id="key" type="password" autocomplete="off" value="${esc(S.key)}"></label><label style="margin-top:8px">ชื่อโมเดล<input id="model" value="${esc(S.model)}"></label>
+<p class="r"><button class="b" onclick="setKey()">บันทึก</button><button class="b d" onclick="S.key='';save();render();toast('ลบคีย์แล้ว')">ลบคีย์</button></p></div>
+<div class="cd"><h2>ข้อมูลจาก Zepp</h2><p class="sm mu">แอปนี้ไม่ได้เชื่อมกับ Zepp ให้ดูค่าในแอป Zepp แล้วกรอกเองในหน้า "วันนี้"</p></div>`;
+function setGoal(){const v=parseFloat($('#goal').value);if(!(v>=800&&v<=6000))return toast('เป้าหมายต้องอยู่ระหว่าง 800–6000');S.goal=v;if(save())toast('บันทึกแล้ว')}
+function setKey(){S.key=$('#key').value.trim();S.model=$('#model').value.trim()||'gemini-2.5-flash';if(save())toast('บันทึกแล้ว')}
+const TABS=[['scan','สแกน'],['today','วันนี้'],['hist','ประวัติ'],['set','ตั้งค่า']];
+function render(){const h=$('#hint')?$('#hint').value:null;$('#n').innerHTML=TABS.map(([k,t])=>`<button class="${k===tab?'on':''}" onclick="tab='${k}';render();scrollTo(0,0)">${t}</button>`).join('');$('#m').innerHTML=V[tab]();if(h&&$('#hint'))$('#hint').value=h}
+render();if('serviceWorker'in navigator)addEventListener('load',()=>navigator.serviceWorker.register('service-worker.js').catch(()=>{}));
+</script></body></html>
