@@ -1,0 +1,168 @@
+/* ---------- Storage (localStorage, ใช้ได้เฉพาะเครื่องนี้) ---------- */
+const KEY='forma_v1';
+const def=()=>({profile:{name:'',sex:'m',age:'',h:'',w:'',goalW:'',act:1.375,goal:'lose'},goals:{kcal:2000,p:120,c:225,f:60,water:2000},foods:[],meals:[],water:[],workouts:[],sleep:[],weights:[],plan:[]});
+let S;try{S=Object.assign(def(),JSON.parse(localStorage.getItem(KEY)||'{}'))}catch(e){S=def()}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S));return true}catch(e){toast('บันทึกไม่สำเร็จ: พื้นที่จัดเก็บของเบราว์เซอร์ใช้ไม่ได้','er');return false}}
+const $=s=>document.querySelector(s),uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const today=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
+const n=v=>{const x=parseFloat(v);return isFinite(x)?x:NaN},r0=x=>Math.round(x),r1=x=>Math.round(x*10)/10;
+let tt;function toast(m,t='ok'){const e=$('#toast');e.textContent=m;e.className='s '+t;clearTimeout(tt);tt=setTimeout(()=>e.className='',2600)}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function ic(p){return `<svg viewBox="0 0 24 24">${p}</svg>`}
+
+/* ---------- Calculations ---------- */
+const mealsOf=d=>S.meals.filter(m=>m.date===d);
+const tot=d=>mealsOf(d).reduce((a,m)=>{const k=m.g/100;a.kcal+=m.kcal*k;a.p+=m.p*k;a.c+=m.c*k;a.f+=m.f*k;return a},{kcal:0,p:0,c:0,f:0});
+const waterOn=d=>S.water.filter(w=>w.date===d).reduce((a,w)=>a+w.ml,0);
+const vol=w=>w.sets.reduce((a,s)=>a+s.kg*s.reps,0);
+function body(p){ // Mifflin-St Jeor
+  const a=n(p.age),h=n(p.h),w=n(p.w);
+  if(!(a>=15&&a<=100&&h>=100&&h<=250&&w>=30&&w<=300))return null;
+  const bmr=10*w+6.25*h-5*a+(p.sex==='m'?5:-161),tdee=bmr*p.act;
+  const adj={lose:-0.2,gain:0.1,keep:0,perf:0.05}[p.goal];const kcal=tdee*(1+adj);
+  const prot=w*(p.goal==='keep'?1.6:2.0),fat=kcal*0.25/9,carb=(kcal-prot*4-fat*9)/4;
+  return{bmi:w/((h/100)**2),bmr,tdee,kcal,prot,fat,carb}}
+function readiness(){
+  const L=[...S.sleep].sort((a,b)=>a.date<b.date?1:-1);
+  if(L.length<14)return{ok:false,n:L.length};
+  const last=L[0],avg=L.slice(0,14).reduce((a,s)=>a+s.hrs,0)/14;
+  const dur=Math.min(100,last.hrs/8*100),rel=Math.max(0,100-Math.abs(last.hrs-avg)*25);
+  const feel=n(last.feel||3)/5*100;
+  return{ok:true,score:r0(dur*.5+rel*.2+feel*.3),dur:r0(dur),rel:r0(rel),feel:r0(feel)}}
+function rlevel(s){return s>=85?['พร้อมฝึกตามแผน','g']:s>=70?['พร้อมฝึกตามปกติ สังเกตความเหนื่อย','g']:s>=50?['พิจารณาลดความหนัก','w']:['พิจารณาพักหรือทำ Recovery','e']}
+function pbar(v,g,u=''){const p=g?Math.min(100,v/g*100):0;return `<div class="row"><span>${r0(v)}${u}</span><span class="mut">/ ${g}${u}</span></div><div class="bar ${v>g?'over':''}"><i style="width:${p}%"></i></div>`}
+function chart(pts,u){ // SVG line chart
+  if(pts.length<2)return `<div class="empty">ต้องมีข้อมูลอย่างน้อย 2 จุดเพื่อแสดงกราฟ</div>`;
+  const W=600,H=180,xs=pts.map((p,i)=>i),ys=pts.map(p=>p.v),mn=Math.min(...ys),mx=Math.max(...ys),sp=(mx-mn)||1;
+  const P=pts.map((p,i)=>[20+i*(W-40)/(pts.length-1),H-25-(p.v-mn)/sp*(H-50)]);
+  return `<div class="sc"><svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:320px"><polyline fill="none" stroke="#c6f432" stroke-width="2.5" points="${P.map(q=>q.join(',')).join(' ')}"/>${P.map((q,i)=>`<circle cx="${q[0]}" cy="${q[1]}" r="4" fill="#c6f432"/>`).join('')}<text x="20" y="${H-4}" fill="#9aa09b" font-size="12">${pts[0].d}</text><text x="${W-20}" y="${H-4}" fill="#9aa09b" font-size="12" text-anchor="end">${pts[pts.length-1].d}</text><text x="20" y="14" fill="#9aa09b" font-size="12">สูงสุด ${r1(mx)}${u}  ต่ำสุด ${r1(mn)}${u}</text></svg></div>`}
+const MEALS={b:'อาหารเช้า',l:'อาหารกลางวัน',d:'อาหารเย็น',s:'ของว่าง',k:'เครื่องดื่ม'};
+const confirmDel=(m,fn)=>{if(confirm(m)){fn();save();render();toast('ลบแล้ว')}};
+
+/* ---------- Pages ---------- */
+const PAGES=[
+['dash','ภาพรวม',ic('<rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>')],
+['nut','โภชนาการ',ic('<path d="M4 3v7a3 3 0 006 0V3M7 3v18M17 21V3c-2 2-3 5-3 8h3"/>')],
+['wo','ออกกำลังกาย',ic('<path d="M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12"/>')],
+['sl','การนอนหลับ',ic('<path d="M21 13A9 9 0 1111 3a7 7 0 0010 10z"/>')],
+['rd','ความพร้อม',ic('<path d="M3 12h4l3-8 4 16 3-8h4"/>')],
+['bm','ข้อมูลร่างกาย',ic('<circle cx="12" cy="5" r="2"/><path d="M12 7v7M8 10h8M9 21l3-7 3 7"/>')],
+['mp','แผนอาหาร',ic('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>')],
+['pg','พัฒนาการ',ic('<path d="M3 17l6-6 4 4 8-8M15 7h6v6"/>')],
+['wa','นาฬิกา',ic('<rect x="7" y="6" width="10" height="12" rx="3"/><path d="M9 6l1-3h4l1 3M9 18l1 3h4l1-3"/>')],
+['st','ตั้งค่า',ic('<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>')]];
+let page='dash',selD=today();
+const V={};
+
+V.dash=()=>{
+  const d=today(),t=tot(d),g=S.goals,wt=[...S.weights].sort((a,b)=>a.date<b.date?1:-1)[0],rd=readiness(),sl=S.sleep.find(s=>s.date===d),w=waterOn(d);
+  const gr=new Date().getHours()<12?'สวัสดีตอนเช้า':new Date().getHours()<18?'สวัสดีตอนบ่าย':'สวัสดีตอนเย็น';
+  const wk=S.workouts.filter(x=>x.date===d);
+  return `<h1>${gr}${S.profile.name?' คุณ'+esc(S.profile.name):''}</h1><p class="sub">${new Date().toLocaleDateString('th-TH',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}${wt?` · น้ำหนักล่าสุด ${wt.kg} กก.`:''}</p>
+<div class="grid">
+<div class="card"><h2>พลังงานวันนี้</h2><div class="big">${r0(Math.max(0,g.kcal-t.kcal))} <small>kcal ที่เหลือ</small></div>${pbar(t.kcal,g.kcal,' kcal')}
+<div class="mut">โปรตีน</div>${pbar(t.p,g.p,' g')}<div class="mut">คาร์โบไฮเดรต</div>${pbar(t.c,g.c,' g')}<div class="mut">ไขมัน</div>${pbar(t.f,g.f,' g')}${mealsOf(d).length?'':'<div class="empty">ยังไม่ได้บันทึกอาหาร <button class="btn g" onclick="go(\'nut\')">บันทึกอาหาร</button></div>'}</div>
+<div class="card"><h2>ความพร้อมร่างกาย</h2>${rd.ok?`<div class="big">${rd.score}<small>/100</small></div><p>${rlevel(rd.score)[0]}</p><span class="tag">คะแนนประเมินของ FORMA</span>`:`<div class="big" style="font-size:22px">ข้อมูลไม่เพียงพอ</div><p class="mut">มีข้อมูลการนอน ${rd.n}/14 วัน ต้องสะสมอย่างน้อย 14 วันจึงจะแสดงคะแนน</p>`}</div>
+<div class="card"><h2>น้ำดื่ม</h2><div class="big">${w} <small>/ ${g.water} มล.</small></div><div class="bar"><i style="width:${Math.min(100,w/g.water*100)}%"></i></div><div class="row" style="justify-content:flex-start;flex-wrap:wrap">${[150,250,500].map(v=>`<button class="btn g" onclick="addWater(${v})">+${v} มล.</button>`).join('')}</div></div>
+<div class="card"><h2>การนอนหลับ</h2>${sl?`<div class="big">${sl.hrs} <small>ชม.</small></div><span class="tag">แหล่งข้อมูล: บันทึกเอง</span>`:`<div class="empty">ยังไม่มีข้อมูลการนอนของวันนี้ <button class="btn g" onclick="go('sl')">บันทึกการนอน</button></div>`}</div>
+<div class="card"><h2>กิจกรรมจากนาฬิกา</h2><div class="empty">ยังไม่ได้เชื่อมต่อ Amazfit<br>ก้าว ระยะทาง และชีพจรจะแสดงเมื่อเชื่อมต่อจริงเท่านั้น<br><button class="btn g" onclick="go('wa')" style="margin-top:10px">ดูสถานะการเชื่อมต่อ</button></div></div>
+<div class="card"><h2>ออกกำลังกายวันนี้</h2>${wk.length?wk.map(x=>`<div class="row"><span>${esc(x.ex)}</span><span class="mut">${x.sets.length} เซต · ${r0(vol(x))} กก.</span></div>`).join(''):`<div class="empty">ยังไม่มีการบันทึกวันนี้ <button class="btn g" onclick="go('wo')">บันทึกการฝึก</button></div>`}</div>
+<div class="card"><h2>คำแนะนำจาก AI</h2><div class="empty">ยังไม่ได้ตั้งค่า AI Provider (Setup Required)<br>คำแนะนำจะแสดงเมื่อเชื่อมต่อ AI และมีข้อมูลเพียงพอ ไม่ใช่การวินิจฉัยโรค</div></div>
+</div>`};
+
+V.nut=()=>{
+  const d=selD,t=tot(d),ms=mealsOf(d);
+  return `<h1>โภชนาการ</h1><p class="sub">บันทึกอาหารแล้วภาพรวมจะอัปเดตทันที</p>
+<div class="card" style="margin-bottom:14px"><div class="row"><h2>มื้อของวันที่</h2><input type="date" id="nd" value="${d}" style="width:auto" onchange="selD=this.value;render()"></div>
+<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(110px,1fr))"><div><div class="mut">kcal</div><div class="big" style="font-size:26px">${r0(t.kcal)}</div></div><div><div class="mut">โปรตีน</div><div class="big" style="font-size:26px">${r1(t.p)}</div></div><div><div class="mut">คาร์บ</div><div class="big" style="font-size:26px">${r1(t.c)}</div></div><div><div class="mut">ไขมัน</div><div class="big" style="font-size:26px">${r1(t.f)}</div></div></div></div>
+<div class="card" style="margin-bottom:14px"><h2>เพิ่มอาหารจากฐานข้อมูล</h2>${S.foods.length?`<form onsubmit="return logFood(event)"><label>อาหาร<select id="lf">${S.foods.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join('')}</select></label><label>มื้อ<select id="lm">${Object.entries(MEALS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label><label>ปริมาณ (กรัม)<input id="lg" type="number" step="any" min="1" required></label><button class="btn">บันทึกมื้อ</button></form>`:'<div class="empty">ฐานข้อมูลอาหารยังว่าง เพิ่มอาหารด้านล่างก่อน</div>'}</div>
+<div class="card" style="margin-bottom:14px"><h2>รายการที่บันทึก</h2>${ms.length?`<div class="sc"><table><tr><th>รายการ</th><th>กรัม</th><th>kcal</th><th>P</th><th>C</th><th>F</th><th></th></tr>${ms.map(m=>{const k=m.g/100;return `<tr><td>${esc(m.name)}<br><span class="mut" style="font-size:12px">${MEALS[m.meal]}</span></td><td>${m.g}</td><td>${r0(m.kcal*k)}</td><td>${r1(m.p*k)}</td><td>${r1(m.c*k)}</td><td>${r1(m.f*k)}</td><td><button class="x" onclick="confirmDel('ลบรายการนี้?',()=>S.meals=S.meals.filter(z=>z.id!=='${m.id}'))">ลบ</button></td></tr>`}).join('')}</table></div>`:'<div class="empty">ยังไม่มีรายการอาหารในวันนี้</div>'}</div>
+<div class="card" style="margin-bottom:14px"><h2>เพิ่มอาหารใหม่ (ค่าต่อ 100 กรัม)</h2><form onsubmit="return addFood(event)"><label>ชื่ออาหาร<input id="fn" required maxlength="60"></label><label>kcal<input id="fk" type="number" step="any" min="0" max="900" required></label><label>โปรตีน (g)<input id="fp" type="number" step="any" min="0" max="100" required></label><label>คาร์บ (g)<input id="fc" type="number" step="any" min="0" max="100" required></label><label>ไขมัน (g)<input id="ff" type="number" step="any" min="0" max="100" required></label><button class="btn">เพิ่มในฐานข้อมูล</button></form>
+<p class="mut" style="font-size:13px">ใส่ค่าจากฉลากโภชนาการหรือแหล่งที่เชื่อถือได้ ระบบไม่ใส่ตัวเลขให้เอง</p>
+${S.foods.length?`<div class="sc"><table><tr><th>ชื่อ</th><th>kcal</th><th>P</th><th>C</th><th>F</th><th></th></tr>${S.foods.map(f=>`<tr><td>${esc(f.name)}</td><td>${f.kcal}</td><td>${f.p}</td><td>${f.c}</td><td>${f.f}</td><td><button class="x" onclick="confirmDel('ลบอาหารนี้ออกจากฐานข้อมูล?',()=>S.foods=S.foods.filter(z=>z.id!=='${f.id}'))">ลบ</button></td></tr>`).join('')}</table></div>`:''}</div>
+<div class="card"><h2>สแกนอาหารด้วย AI</h2><div class="empty">Setup Required: ยังไม่ได้เชื่อมต่อ AI Provider (Phase 3)<br>ใช้โหมดบันทึกเองด้านบนได้ตามปกติ ผลจาก AI เป็นค่าประมาณและต้องให้ผู้ใช้ตรวจสอบก่อนบันทึก</div></div>`};
+function addFood(e){e.preventDefault();const f={id:uid(),name:$('#fn').value.trim(),kcal:n($('#fk').value),p:n($('#fp').value),c:n($('#fc').value),f:n($('#ff').value)};
+  if(!f.name||[f.kcal,f.p,f.c,f.f].some(isNaN))return toast('กรอกข้อมูลให้ครบและเป็นตัวเลข','er'),false;
+  if(f.p+f.c+f.f>100)return toast('โปรตีน+คาร์บ+ไขมัน ต่อ 100 กรัม ต้องไม่เกิน 100','er'),false;
+  S.foods.push(f);if(save()){toast('เพิ่มอาหารแล้ว');render()}return false}
+function logFood(e){e.preventDefault();const f=S.foods.find(x=>x.id===$('#lf').value),g=n($('#lg').value);
+  if(!f||!(g>0&&g<=3000))return toast('ปริมาณต้องอยู่ระหว่าง 1–3000 กรัม','er'),false;
+  S.meals.push({id:uid(),date:selD,meal:$('#lm').value,name:f.name,g,kcal:f.kcal,p:f.p,c:f.c,f:f.f,src:'manual'});
+  if(save()){toast('บันทึกมื้ออาหารแล้ว');render()}return false}
+function addWater(ml){S.water.push({id:uid(),date:today(),ml,src:'manual'});if(save()){toast('เพิ่มน้ำ '+ml+' มล.');render()}}
+
+V.wo=()=>{
+  const L=[...S.workouts].sort((a,b)=>a.date<b.date?1:-1),pr={};
+  S.workouts.forEach(w=>w.sets.forEach(s=>{if(!pr[w.ex]||s.kg>pr[w.ex])pr[w.ex]=s.kg}));
+  return `<h1>ออกกำลังกาย</h1><p class="sub">Volume = น้ำหนัก × จำนวนครั้ง × จำนวนเซต</p>
+<div class="card" style="margin-bottom:14px"><h2>บันทึกการฝึก</h2><form onsubmit="return addWo(event)"><label>ท่า<input id="we" required maxlength="50" placeholder="เช่น Bench Press"></label><label>เซต<input id="ws" type="number" min="1" max="20" required></label><label>ครั้ง/เซต<input id="wr" type="number" min="1" max="100" required></label><label>น้ำหนัก (กก.)<input id="wk" type="number" step="any" min="0" max="500" required></label><button class="btn">บันทึก</button></form></div>
+<div class="card"><h2>ประวัติ</h2>${L.length?`<div class="sc"><table><tr><th>วันที่</th><th>ท่า</th><th>เซต×ครั้ง×กก.</th><th>Volume</th><th></th></tr>${L.map(w=>`<tr><td>${w.date}</td><td>${esc(w.ex)}${pr[w.ex]===w.sets[0].kg?' <span class="tag g">PR</span>':''}</td><td>${w.sets.length}×${w.sets[0].reps}×${w.sets[0].kg}</td><td>${r0(vol(w))}</td><td><button class="x" onclick="confirmDel('ลบการฝึกนี้?',()=>S.workouts=S.workouts.filter(z=>z.id!=='${w.id}'))">ลบ</button></td></tr>`).join('')}</table></div>`:'<div class="empty">ยังไม่มีประวัติการฝึก</div>'}</div>`};
+function addWo(e){e.preventDefault();const s=n($('#ws').value),r=n($('#wr').value),k=n($('#wk').value),ex=$('#we').value.trim();
+  if(!ex||!(s>=1)||!(r>=1)||isNaN(k)||k<0)return toast('ตรวจสอบข้อมูลอีกครั้ง','er'),false;
+  S.workouts.push({id:uid(),date:today(),ex,sets:Array.from({length:Math.round(s)},()=>({reps:r,kg:k})),src:'manual'});
+  if(save()){toast('บันทึกการฝึกแล้ว');render()}return false}
+
+V.sl=()=>{
+  const L=[...S.sleep].sort((a,b)=>a.date<b.date?1:-1),av=k=>{const x=L.slice(0,k);return x.length?r1(x.reduce((a,s)=>a+s.hrs,0)/x.length):null};
+  return `<h1>การนอนหลับ</h1><p class="sub">ข้อมูลทุกรายการระบุแหล่งที่มา (ตอนนี้: บันทึกเอง)</p>
+<div class="grid" style="margin-bottom:14px"><div class="card"><div class="mut">เฉลี่ย 7 วัน</div><div class="big">${av(7)??'–'} <small>ชม.</small></div></div><div class="card"><div class="mut">เฉลี่ย 30 วัน</div><div class="big">${av(30)??'–'} <small>ชม.</small></div></div></div>
+<div class="card" style="margin-bottom:14px"><h2>บันทึกการนอน</h2><form onsubmit="return addSl(event)"><label>วันที่ตื่น<input id="sd" type="date" value="${today()}" required></label><label>เวลาเข้านอน<input id="sb" type="time" required></label><label>เวลาตื่น<input id="sw" type="time" required></label><label>ความรู้สึกตอนตื่น<select id="sf"><option value="1">1 แย่มาก</option><option value="2">2 แย่</option><option value="3" selected>3 ปกติ</option><option value="4">4 ดี</option><option value="5">5 ดีมาก</option></select></label><button class="btn">บันทึก</button></form></div>
+<div class="card"><h2>ประวัติและแนวโน้ม</h2>${chart([...L].reverse().slice(-30).map(s=>({d:s.date,v:s.hrs})),' ชม.')}${L.length?`<div class="sc"><table><tr><th>วันที่</th><th>ชั่วโมง</th><th>แหล่ง</th><th></th></tr>${L.map(s=>`<tr><td>${s.date}</td><td>${s.hrs}</td><td>บันทึกเอง</td><td><button class="x" onclick="confirmDel('ลบรายการนี้?',()=>S.sleep=S.sleep.filter(z=>z.id!=='${s.id}'))">ลบ</button></td></tr>`).join('')}</table></div>`:''}</div>`};
+function addSl(e){e.preventDefault();const [bh,bm]=$('#sb').value.split(':').map(Number),[wh,wm]=$('#sw').value.split(':').map(Number);
+  let m=(wh*60+wm)-(bh*60+bm);if(m<=0)m+=1440;const hrs=r1(m/60),date=$('#sd').value;
+  if(!date||hrs<1||hrs>16)return toast('ระยะเวลานอนต้องอยู่ระหว่าง 1–16 ชั่วโมง','er'),false;
+  if(S.sleep.some(s=>s.date===date))return toast('มีบันทึกของวันที่นี้แล้ว (ป้องกันข้อมูลซ้ำ) กรุณาลบก่อน','er'),false;
+  S.sleep.push({id:uid(),date,hrs,feel:n($('#sf').value),src:'manual'});if(save()){toast('บันทึกการนอนแล้ว');render()}return false}
+
+V.rd=()=>{const r=readiness();
+  return `<h1>ความพร้อมร่างกาย</h1><p class="sub">คะแนนประเมินของ FORMA ไม่ใช่มาตรฐานทางการแพทย์ และไม่ใช่การวินิจฉัย</p>
+<div class="card">${r.ok?`<div class="big">${r.score}<small>/100</small></div><p><span class="tag ${rlevel(r.score)[1]}">${rlevel(r.score)[0]}</span></p><table><tr><td>ระยะเวลานอนเทียบ 8 ชม.</td><td>${r.dur}</td></tr><tr><td>ความสม่ำเสมอเทียบค่าเฉลี่ย 14 วัน</td><td>${r.rel}</td></tr><tr><td>ความรู้สึกตอนตื่น</td><td>${r.feel}</td></tr></table><p class="mut" style="font-size:13px">เวอร์ชันนี้ยังไม่มี HRV ชีพจรขณะพัก และภาระการฝึก จะเพิ่มเมื่อเชื่อมต่อนาฬิกาจริง</p>`:`<div class="big" style="font-size:24px">ข้อมูลไม่เพียงพอ (Insufficient Data)</div><p class="mut">ต้องมีบันทึกการนอนอย่างน้อย 14 วัน ตอนนี้มี ${r.n} วัน</p><button class="btn" onclick="go('sl')">บันทึกการนอน</button>`}</div>
+<div class="card" style="margin-top:14px"><h2>เกณฑ์ (ค่าเริ่มต้น)</h2><table><tr><td>85–100</td><td>พร้อมฝึกตามแผน</td></tr><tr><td>70–84</td><td>พร้อมฝึกตามปกติ สังเกตความเหนื่อย</td></tr><tr><td>50–69</td><td>พิจารณาลดความหนัก</td></tr><tr><td>ต่ำกว่า 50</td><td>พิจารณาพักหรือทำ Recovery</td></tr></table></div>`};
+
+V.bm=()=>{const p=S.profile,b=body(p),o=(v,t)=>`<option value="${v}" ${String(p.act)===String(v)||p.goal===v||p.sex===v?'selected':''}>${t}</option>`;
+  return `<h1>ข้อมูลร่างกาย</h1><p class="sub">สูตร: Mifflin-St Jeor (BMR) × ตัวคูณกิจกรรม = TDEE</p>
+<div class="card" style="margin-bottom:14px"><form onsubmit="return saveBody(event)"><label>เพศ (ใช้ในสูตร)<select id="bs">${o('m','ชาย')}${o('f','หญิง')}</select></label><label>อายุ (ปี)<input id="ba" type="number" value="${p.age}" required></label><label>ส่วนสูง (ซม.)<input id="bh" type="number" step="any" value="${p.h}" required></label><label>น้ำหนัก (กก.)<input id="bw" type="number" step="any" value="${p.w}" required></label><label>น้ำหนักเป้าหมาย<input id="bg" type="number" step="any" value="${p.goalW}"></label><label>ระดับกิจกรรม<select id="bc">${[[1.2,'นั่งทำงานเป็นหลัก'],[1.375,'ออกกำลังเบา 1–3 วัน'],[1.55,'ปานกลาง 3–5 วัน'],[1.725,'หนัก 6–7 วัน']].map(([v,t])=>`<option value="${v}" ${p.act==v?'selected':''}>${t}</option>`).join('')}</select></label><label>เป้าหมาย<select id="bo">${o('lose','ลดไขมัน')}${o('gain','เพิ่มกล้ามเนื้อ')}${o('keep','รักษาน้ำหนัก')}${o('perf','เพิ่มสมรรถภาพ')}</select></label><button class="btn">บันทึกและคำนวณ</button></form></div>
+${b?`<div class="grid"><div class="card"><div class="mut">BMI</div><div class="big">${r1(b.bmi)}</div></div><div class="card"><div class="mut">BMR</div><div class="big">${r0(b.bmr)} <small>kcal</small></div></div><div class="card"><div class="mut">TDEE</div><div class="big">${r0(b.tdee)} <small>kcal</small></div></div><div class="card"><div class="mut">แคลอรีเป้าหมาย</div><div class="big">${r0(b.kcal)} <small>kcal</small></div><p class="mut" style="font-size:13px">โปรตีน ${r0(b.prot)} g · คาร์บ ${r0(b.carb)} g · ไขมัน ${r0(b.fat)} g<br>TDEE รวมกิจกรรมแล้ว จึงไม่บวก Active Calories ซ้ำ</p><button class="btn" onclick="applyGoals()">ใช้เป็นเป้าหมายประจำวัน</button></div></div>`:'<div class="empty">กรอกข้อมูลให้ครบ (อายุ 15–100, สูง 100–250 ซม., หนัก 30–300 กก.) เพื่อคำนวณ</div>'}`};
+function saveBody(e){e.preventDefault();const p={...S.profile,sex:$('#bs').value,age:n($('#ba').value),h:n($('#bh').value),w:n($('#bw').value),goalW:$('#bg').value,act:n($('#bc').value),goal:$('#bo').value};
+  if(!body(p))return toast('ค่าที่กรอกผิดปกติ ตรวจสอบหน่วยและช่วงที่ยอมรับ','er'),false;
+  S.profile=p;const d=today();S.weights=S.weights.filter(x=>x.date!==d);S.weights.push({id:uid(),date:d,kg:p.w,src:'manual'});
+  if(save()){toast('บันทึกแล้ว');render()}return false}
+function applyGoals(){const b=body(S.profile);if(!b)return;S.goals={...S.goals,kcal:r0(b.kcal),p:r0(b.prot),c:r0(b.carb),f:r0(b.fat)};if(save()){toast('อัปเดตเป้าหมายแล้ว')}}
+
+V.mp=()=>{const k=S.plan.reduce((a,i)=>{const x=i.g/100;a.kcal+=i.kcal*x;a.p+=i.p*x;a.c+=i.c*x;a.f+=i.f*x;return a},{kcal:0,p:0,c:0,f:0}),g=S.goals;
+  return `<h1>แผนอาหาร</h1><p class="sub">วางแผนจากฐานข้อมูลอาหาร แล้วเทียบกับเป้าหมายรายวัน</p>
+<div class="card" style="margin-bottom:14px">${S.foods.length?`<form onsubmit="return addPlan(event)"><label>อาหาร<select id="pf">${S.foods.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join('')}</select></label><label>มื้อ<select id="pm">${Object.entries(MEALS).map(([a,b])=>`<option value="${a}">${b}</option>`).join('')}</select></label><label>กรัม<input id="pg" type="number" min="1" step="any" required></label><button class="btn">เพิ่มในแผน</button></form>`:'<div class="empty">เพิ่มอาหารในหน้าโภชนาการก่อน</div>'}</div>
+<div class="card"><h2>แผนของวัน</h2>${S.plan.length?`<div class="sc"><table><tr><th>รายการ</th><th>กรัม</th><th>kcal</th><th></th></tr>${S.plan.map(i=>`<tr><td>${esc(i.name)}<br><span class="mut" style="font-size:12px">${MEALS[i.meal]}</span></td><td>${i.g}</td><td>${r0(i.kcal*i.g/100)}</td><td><button class="x" onclick="confirmDel('ลบออกจากแผน?',()=>S.plan=S.plan.filter(z=>z.id!=='${i.id}'))">ลบ</button></td></tr>`).join('')}</table></div>${pbar(k.kcal,g.kcal,' kcal')}<p class="mut">โปรตีน ${r0(k.p)}/${g.p} g · คาร์บ ${r0(k.c)}/${g.c} g · ไขมัน ${r0(k.f)}/${g.f} g</p>`:'<div class="empty">ยังไม่มีรายการในแผน</div>'}</div>`};
+function addPlan(e){e.preventDefault();const f=S.foods.find(x=>x.id===$('#pf').value),g=n($('#pg').value);if(!f||!(g>0))return toast('ปริมาณไม่ถูกต้อง','er'),false;
+  S.plan.push({id:uid(),meal:$('#pm').value,name:f.name,g,kcal:f.kcal,p:f.p,c:f.c,f:f.f});if(save()){toast('เพิ่มในแผนแล้ว');render()}return false}
+
+V.pg=()=>{const W=[...S.weights].sort((a,b)=>a.date<b.date?-1:1);
+  return `<h1>พัฒนาการ</h1><p class="sub">ข้อมูลจากที่คุณบันทึกไว้เท่านั้น</p>
+<div class="card" style="margin-bottom:14px"><h2>น้ำหนัก</h2>${chart(W.map(w=>({d:w.date,v:w.kg})),' กก.')}<form onsubmit="return addW(event)" style="margin-top:12px"><label>น้ำหนัก (กก.)<input id="pw" type="number" step="any" min="30" max="300" required></label><button class="btn">บันทึกน้ำหนักวันนี้</button></form></div>
+<div class="card"><h2>ปริมาณการฝึกรายวัน</h2>${chart(Object.entries(S.workouts.reduce((a,w)=>(a[w.date]=(a[w.date]||0)+vol(w),a),{})).sort().map(([d,v])=>({d,v:r0(v)})),' กก.')}</div>`};
+function addW(e){e.preventDefault();const k=n($('#pw').value);if(!(k>=30&&k<=300))return toast('น้ำหนักต้องอยู่ระหว่าง 30–300 กก.','er'),false;
+  const d=today();S.weights=S.weights.filter(x=>x.date!==d);S.weights.push({id:uid(),date:d,kg:k,src:'manual'});S.profile.w=k;if(save()){toast('บันทึกน้ำหนักแล้ว');render()}return false}
+
+V.wa=()=>`<h1>สุขภาพจากนาฬิกา</h1><p class="sub">Amazfit Active 2 · Zepp · Apple Health</p>
+<div class="card" style="margin-bottom:14px"><div class="row"><h2>สถานะ</h2><span class="tag e">ยังไม่ได้เชื่อมต่อ</span></div><table><tr><td>ซิงก์ล่าสุด</td><td>ไม่มี</td></tr><tr><td>แหล่งข้อมูล</td><td>ไม่มี</td></tr><tr><td>จำนวนข้อมูลที่นำเข้า</td><td>0</td></tr></table><p class="mut">ระบบไม่สร้างค่าชีพจร การนอน หรือ HRV ขึ้นมาเอง ข้อมูลจะปรากฏหลังเชื่อมต่อจริงและทดสอบกับอุปกรณ์แล้ว</p></div>
+<div class="card"><h2>ข้อจำกัดและแนวทาง</h2><p>เว็บ/PWA อ่าน Apple HealthKit โดยตรงไม่ได้ ต้องใช้แอป iOS Companion (Swift/SwiftUI) ที่ต้องสร้างด้วย Mac และ Xcode แล้วส่งข้อมูลไป Backend ซึ่งเป็นงานของ Phase 4 สิทธิ์เข้าถึง Zepp Open Platform ต้องตรวจสอบก่อนเลือกใช้ iOS จำกัดการทำงานเบื้องหลัง จึงรับประกันการซิงก์แบบเรียลไทม์ไม่ได้</p></div>`;
+
+V.st=()=>{const g=S.goals;
+  return `<h1>ตั้งค่า</h1><p class="sub">ข้อมูลเก็บในเบราว์เซอร์เครื่องนี้เท่านั้น ยังไม่ได้เชื่อมต่อฐานข้อมูลออนไลน์ (Supabase อยู่ใน Phase 2)</p>
+<div class="card" style="margin-bottom:14px"><h2>โปรไฟล์และเป้าหมาย</h2><form onsubmit="return saveSet(event)"><label>ชื่อ<input id="tn" value="${esc(S.profile.name)}" maxlength="30"></label><label>kcal/วัน<input id="tk" type="number" value="${g.kcal}" min="800" max="6000"></label><label>โปรตีน (g)<input id="tp" type="number" value="${g.p}" min="0" max="500"></label><label>คาร์บ (g)<input id="tc" type="number" value="${g.c}" min="0" max="900"></label><label>ไขมัน (g)<input id="tf" type="number" value="${g.f}" min="0" max="400"></label><label>น้ำ (มล.)<input id="tw" type="number" value="${g.water}" min="500" max="8000"></label><button class="btn">บันทึก</button></form></div>
+<div class="card"><h2>จัดการข้อมูล</h2><div class="row" style="justify-content:flex-start;flex-wrap:wrap"><button class="btn g" onclick="exportD()">ส่งออกข้อมูล (JSON)</button><label class="btn g" style="cursor:pointer;color:var(--tx);flex-direction:row">นำเข้าข้อมูล<input type="file" accept=".json" hidden onchange="importD(this.files[0])"></label><button class="btn d" onclick="confirmDel('ลบข้อมูลทั้งหมดในเครื่องนี้? ย้อนกลับไม่ได้',()=>S=def())">ลบข้อมูลทั้งหมด</button></div></div>`};
+function saveSet(e){e.preventDefault();const g={kcal:n($('#tk').value),p:n($('#tp').value),c:n($('#tc').value),f:n($('#tf').value),water:n($('#tw').value)};
+  if(Object.values(g).some(v=>isNaN(v)||v<0))return toast('ค่าเป้าหมายไม่ถูกต้อง','er'),false;
+  S.goals=g;S.profile.name=$('#tn').value.trim();if(save())toast('บันทึกการตั้งค่าแล้ว');return false}
+function exportD(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],{type:'application/json'}));a.download='forma-backup-'+today()+'.json';document.body.appendChild(a);a.click();a.remove();toast('ส่งออกข้อมูลแล้ว')}
+function importD(f){if(!f)return;const r=new FileReader();r.onload=()=>{try{const o=JSON.parse(r.result);if(typeof o!=='object'||!o.goals)throw 0;if(!confirm('นำเข้าจะแทนที่ข้อมูลปัจจุบัน ต้องการดำเนินการต่อ?'))return;S=Object.assign(def(),o);save();render();toast('นำเข้าข้อมูลแล้ว')}catch(e){toast('ไฟล์ไม่ถูกต้อง','er')}};r.readAsText(f)}
+
+/* ---------- Router ---------- */
+function go(p){page=p;location.hash=p;render();window.scrollTo(0,0)}
+function render(){$('#nav').innerHTML='<div class="logo">FOR<b>M</b>A</div>'+PAGES.map(([k,t,i])=>`<button class="${k===page?'on':''}" onclick="go('${k}')">${i}<span>${t}</span></button>`).join('');
+  try{$('#main').innerHTML=V[page]()}catch(e){$('#main').innerHTML='<div class="card"><h2>เกิดข้อผิดพลาด</h2><p class="mut">โหลดหน้าไม่สำเร็จ ลองรีเฟรช</p></div>';console.error(e)}}
+addEventListener('hashchange',()=>{const h=location.hash.slice(1);if(V[h]&&h!==page){page=h;render()}});
+if(V[location.hash.slice(1)])page=location.hash.slice(1);
+render();
+const _off=()=>{const e=document.getElementById('off');if(e)e.style.display=navigator.onLine?'none':'block'};
+addEventListener('online',_off);addEventListener('offline',_off);_off();

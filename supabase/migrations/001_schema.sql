@@ -1,0 +1,16 @@
+-- FORMA FITNESS schema (ยังไม่ได้เชื่อมกับเว็บ) รันใน Supabase SQL Editor
+create table profiles(id uuid primary key references auth.users on delete cascade,name text,sex text,birth_year int,height_cm numeric,goal text,tz text default 'Asia/Bangkok',created_at timestamptz default now(),updated_at timestamptz default now());
+create table food_database(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users on delete cascade,name text not null,kcal_100g numeric,protein_100g numeric,carb_100g numeric,fat_100g numeric,created_at timestamptz default now(),updated_at timestamptz default now());
+create table meal_logs(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users on delete cascade,eaten_at timestamptz not null,meal text,name text,grams numeric,kcal_100g numeric,protein_100g numeric,carb_100g numeric,fat_100g numeric,source text default 'manual',external_id text,created_at timestamptz default now(),updated_at timestamptz default now(),unique(user_id,source,external_id));
+create table workout_logs(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users on delete cascade,done_at timestamptz not null,exercise text,sets jsonb,source text default 'manual',external_id text,created_at timestamptz default now(),updated_at timestamptz default now(),unique(user_id,source,external_id));
+create table sleep_logs(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users on delete cascade,sleep_date date not null,hours numeric,deep_min int,light_min int,rem_min int,awake_min int,source text default 'manual',created_at timestamptz default now(),updated_at timestamptz default now(),unique(user_id,source,sleep_date));
+create table health_metrics(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users on delete cascade,metric text not null,value numeric not null,unit text,measured_at timestamptz not null,source text not null,created_at timestamptz default now(),unique(user_id,source,metric,measured_at));
+create table body_metrics(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users on delete cascade,measured_on date not null,weight_kg numeric,waist_cm numeric,source text default 'manual',created_at timestamptz default now(),unique(user_id,measured_on,source));
+create table water_logs(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users on delete cascade,drunk_at timestamptz not null,ml int not null,source text default 'manual',created_at timestamptz default now());
+create table sync_logs(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users on delete cascade,source text,status text,items int,error text,created_at timestamptz default now());
+do $$ declare t text; c text; begin
+ foreach t in array array['profiles','food_database','meal_logs','workout_logs','sleep_logs','health_metrics','body_metrics','water_logs','sync_logs'] loop
+  c:=case when t='profiles' then 'id' else 'user_id' end;
+  execute format('alter table %I enable row level security',t);
+  execute format('create policy "own rows" on %I for all using (%I = auth.uid()) with check (%I = auth.uid())',t,c,c);
+ end loop; end $$;
